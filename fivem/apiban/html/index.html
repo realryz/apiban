@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>apiban</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main id="screen" class="screen" hidden>
+        <div class="backdrop"></div>
+
+        <section class="panel" role="alertdialog" aria-labelledby="title" aria-describedby="reason">
+            <header class="head">
+                <div class="badge" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="9"/>
+                        <path d="M5.6 5.6l12.8 12.8"/>
+                    </svg>
+                </div>
+                <p class="eyebrow" id="server"></p>
+                <h1 id="title">You have been banned</h1>
+            </header>
+
+            <div class="reason">
+                <span class="label">Reason</span>
+                <p id="reason"></p>
+            </div>
+
+            <dl class="facts">
+                <div><dt>Ban ID</dt><dd id="ban-id" class="mono"></dd></div>
+                <div><dt>Banned by</dt><dd id="banned-by"></dd></div>
+                <div><dt>Duration</dt><dd id="duration"></dd></div>
+                <div><dt>Expires</dt><dd id="expires"></dd></div>
+            </dl>
+
+            <p class="appeal" id="appeal" hidden></p>
+
+            <footer class="foot">
+                <div class="progress"><div class="bar" id="bar"></div></div>
+                <p class="countdown">Disconnecting in <strong id="seconds"></strong>s</p>
+            </footer>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

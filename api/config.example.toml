@@ -1,0 +1,29 @@
+# Copy this file to config.toml and replace the keys.
+# Create a key with:  apiban-api keygen <name> [client|server]
+# keygen prints the token (give it to the device) and the [[keys]] block to paste here.
+# Only the SHA-256 hash of each token is stored, never the token itself.
+
+# Address the API listens on. Keep 127.0.0.1 when a reverse proxy (Caddy, nginx) adds HTTPS,
+# or use "0.0.0.0:8080" to accept connections from other machines.
+bind = "127.0.0.1:8080"
+
+# SQLite database file, created on first start.
+database = "apiban.db"
+
+# The FiveM server (role = "server"): heartbeat, join checks, in-game /ban and /unban.
+[[keys]]
+name = "fivem-server"
+role = "server"
+sha256 = "paste-the-hash-from-keygen-here"
+
+# One client key per iPhone. Remove a block and restart to lock that phone out.
+[[keys]]
+name = "ryz-iphone"
+role = "client"
+sha256 = "paste-the-hash-from-keygen-here"
+
+# The web dashboard (or one key per admin, so bans show who made them).
+[[keys]]
+name = "dashboard"
+role = "client"
+sha256 = "paste-the-hash-from-keygen-here"
