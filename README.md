@@ -1,16 +1,20 @@
 <div align="center">
 
-# apiban
+# ✹ apiban
 
-**Ban players on your FiveM server from a web dashboard, in game, or with one tap on your iPhone.**
+**Ban players on your FiveM server from a web panel, in game, or with one tap on your iPhone.**
 
-Rust API · Lua resource · Next.js dashboard · iOS Shortcuts
+Rust API · Lua resource · Next.js panel · Discord bot (TypeScript) · iOS Shortcuts
 
 </div>
 
 <p align="center">
-  <img src="docs/dashboard.jpg" alt="apiban dashboard with online players and bans" width="49%">
+  <img src="docs/dashboard.jpg" alt="apiban panel with online players and bans" width="49%">
   <img src="docs/ban-screen.jpg" alt="In-game ban screen" width="49%">
+</p>
+<p align="center">
+  <img src="docs/login.jpg" alt="Sign in with Discord" width="49%">
+  <img src="docs/settings.jpg" alt="Creating an API key with a Discord code" width="49%">
 </p>
 
 ---
@@ -20,9 +24,12 @@ Rust API · Lua resource · Next.js dashboard · iOS Shortcuts
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Setup](#setup)
-  - [1. API (Rust)](#1-api-rust)
-  - [2. FiveM resource (Lua)](#2-fivem-resource-lua)
-  - [3. Dashboard (Next.js)](#3-dashboard-nextjs)
+  - [1. Discord application](#1-discord-application)
+  - [2. API (Rust)](#2-api-rust)
+  - [3. Discord bot (TypeScript)](#3-discord-bot-typescript)
+  - [4. Web panel (Next.js)](#4-web-panel-nextjs)
+  - [5. FiveM resource (Lua)](#5-fivem-resource-lua)
+- [Creating an API key](#creating-an-api-key)
 - [iPhone Shortcut](#iphone-shortcut)
 - [In-game commands and export](#in-game-commands-and-export)
 - [API reference](#api-reference)
@@ -32,95 +39,139 @@ Rust API · Lua resource · Next.js dashboard · iOS Shortcuts
 
 ## Features
 
-- **Ban from anywhere**: web dashboard, iPhone Shortcut (also via Siri), `/ban` in game, or any script that can send a `POST` request.
-- **Instant kicks**: online players are removed within ~3 seconds and see a full-screen ban screen first.
-- **Ban card on join**: banned players get a clean card in the connecting screen with reason, ban ID, expiry and an appeal button.
+- **Discord login**: the panel uses Discord OAuth. Only members of your server who have the staff role get in, and losing the role locks them out.
+- **API keys through Discord**: in the panel you create a key, run `/auth` in Discord, and type in the 6-digit code from the bot (valid for 60 seconds).
+- **Ban from anywhere**: web panel, iPhone Shortcut (also via Siri), `/ban` in game, or any script that can send a `POST` request.
+- **Instant kicks**: online players are removed within about 3 seconds and see a full-screen ban screen first.
+- **Ban card on join**: banned players see a card in the connecting screen with the reason, ban ID, expiry and an appeal button.
 - **Hard to evade**: bans store every identifier (license, Discord, Steam, FiveM, Xbox, ...) plus hardware tokens.
 - **Temporary or permanent**: `30m`, `12h`, `7d`, `2w`, `1y` or `perm`.
-- **Per-device keys**: only the iPhones you hand a key to can ban, and every ban is logged with the key's name.
-- **Small and fast**: one Rust binary with an embedded SQLite database, no external database needed.
+- **Small**: one Rust binary with an embedded SQLite database.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    iPhone["📱 iPhone Shortcut"] -- "POST /v1/bans<br/>client key" --> API
-    Web["🖥️ Next.js dashboard"] -- "client key" --> API
+    Panel["🖥️ Next.js panel<br/>Discord OAuth + role"] -- "panel key" --> API
+    Bot["🤖 Discord bot<br/>/auth"] -- "bot key" --> API
+    iPhone["📱 iPhone Shortcut"] -- "your API key" --> API
     API[("🦀 Rust API<br/>SQLite")]
     FiveM["🎮 FiveM server<br/>apiban resource"] -- "heartbeat every 3 s<br/>server key" --> API
     API -- "players to kick" --> FiveM
 ```
 
 1. The **FiveM resource** sends a heartbeat every 3 seconds with the online players and their identifiers.
-2. When someone bans a player (dashboard, iPhone, in game), the **API** stores the ban.
+2. Someone bans a player from the panel, an iPhone or in game, and the **API** stores the ban.
 3. The next heartbeat answers with that player. The resource shows the **ban screen** and drops them.
-4. When a banned player reconnects, the resource asks the API during `playerConnecting` and shows the **ban card**.
+4. When a banned player reconnects, the resource checks them during `playerConnecting` and shows the **ban card**.
+5. The **Discord bot** hands out `/auth` codes. Every minute it also checks that everyone with an API key still has the staff role, and revokes the keys of anyone who lost it.
 
-The FiveM server only makes outgoing requests, so you don't need to open any extra port on it.
+The FiveM server only makes outgoing requests, so you don't need to open a port on it.
 
 ```
 apiban/
 ├── api/            Rust API (axum + SQLite)
+├── bot/            Discord bot (discord.js)
 ├── fivem/apiban/   FiveM resource (Lua + NUI ban screen)
-├── web/            Next.js dashboard
+├── web/            Next.js panel
 └── docs/           Screenshots
 ```
 
 ## Setup
 
-You need [Rust](https://rustup.rs) (1.85+), [Node.js](https://nodejs.org) (20+) and a FiveM server.
+You need [Rust](https://rustup.rs) 1.85+, [Node.js](https://nodejs.org) 22+, a Discord server and a FiveM server.
 
-### 1. API (Rust)
+### 1. Discord application
+
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and create an application.
+2. **Bot** tab: click *Reset Token* and copy the **bot token**. No privileged intents are needed.
+3. **OAuth2** tab: copy the **client ID** and **client secret**, then add the redirect URL of your panel:
+   `https://bans.example.com/auth/callback` (for local testing: `http://localhost:3000/auth/callback`).
+4. Invite the bot to your server (replace the client ID):
+   `https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&scope=bot+applications.commands&permissions=0`
+5. In Discord, turn on *Settings → Advanced → Developer Mode*. Right-click your server for the **server ID**, and right-click the staff role (*Server Settings → Roles*) for the **role ID**.
+
+### 2. API (Rust)
 
 ```bash
 cd api
 cargo build --release
-```
-
-Create one key for the FiveM server, one per iPhone and one for the dashboard:
-
-```bash
 ./target/release/apiban-api keygen fivem-server server
-./target/release/apiban-api keygen ryz-iphone
-./target/release/apiban-api keygen dashboard
+./target/release/apiban-api keygen discord-bot bot
+./target/release/apiban-api keygen web-panel panel
 ```
 
-Each command prints a **token** (shown once, give it to the device) and a `[[keys]]` block. Copy `config.example.toml` to `config.toml` and paste the blocks in:
-
-```toml
-bind = "127.0.0.1:8080"
-database = "apiban.db"
-
-[[keys]]
-name = "ryz-iphone"
-role = "client"
-sha256 = "9c1e5b7a0d4f3e2c8b6a1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c"
-```
-
-Start the API:
+Each `keygen` prints a **token** (shown once) and a `[[keys]]` block. Copy `config.example.toml` to `config.toml`, paste in the three blocks and start the API:
 
 ```bash
 ./target/release/apiban-api
 ```
 
-It reads `./config.toml` (or the path in `APIBAN_CONFIG`) and creates the SQLite database on first start. Check it with `curl http://127.0.0.1:8080/health`.
+It reads `./config.toml` (or the path in `APIBAN_CONFIG`) and creates `apiban.db` on first start. Check it with `curl http://127.0.0.1:8080/health`.
 
-### 2. FiveM resource (Lua)
+| Key role | Used by | Can |
+| --- | --- | --- |
+| `server` | FiveM resource | heartbeat, join checks, in-game `/ban` and `/unban` |
+| `bot` | Discord bot | issue `/auth` codes, revoke keys of users without the role |
+| `panel` | Web panel | manage bans, turn codes into API keys, list and revoke a user's keys |
+
+API keys for people (iPhones, scripts) are not in the config. They are created in the panel, see [Creating an API key](#creating-an-api-key).
+
+### 3. Discord bot (TypeScript)
+
+```bash
+cd bot
+cp .env.example .env
+npm ci
+npm run build
+npm start
+```
+
+| Variable | Value |
+| --- | --- |
+| `DISCORD_BOT_TOKEN` | Bot token from step 1 |
+| `DISCORD_GUILD_ID` | Server ID |
+| `DISCORD_ROLE_ID` | Staff role ID |
+| `APIBAN_API_URL` | URL of the API, e.g. `http://127.0.0.1:8080` |
+| `APIBAN_BOT_KEY` | Token of the `bot` key |
+
+The bot registers `/auth` on your server when it starts.
+
+### 4. Web panel (Next.js)
+
+```bash
+cd web
+cp .env.example .env.local
+npm ci
+npm run build
+npm start
+```
+
+| Variable | Value |
+| --- | --- |
+| `APP_URL` | Public URL of the panel, e.g. `https://bans.example.com` |
+| `SESSION_SECRET` | 32+ random characters, e.g. from `openssl rand -hex 32` |
+| `APIBAN_API_URL` | URL of the API, reachable from the panel server |
+| `APIBAN_PANEL_KEY` | Token of the `panel` key |
+| `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | From the OAuth2 tab |
+| `DISCORD_BOT_TOKEN` | Bot token, used to check the role on every visit |
+| `DISCORD_GUILD_ID` / `DISCORD_ROLE_ID` | Server ID and staff role ID |
+
+Open the panel and click **Sign in with Discord**. People without the role are sent back to the login page.
+
+### 5. FiveM resource (Lua)
 
 1. Copy `fivem/apiban` into your server's `resources` folder.
-2. Add to `server.cfg`, using the **server** token:
+2. Add to `server.cfg`, using the token of the `server` key:
 
    ```cfg
    set apiban_url "https://api.example.com"
    set apiban_key "apiban_..."
-
    ensure apiban
-
-   # who may use /ban and /unban in game
    add_ace group.admin apiban.ban allow
    ```
 
-   Use `set`, not `setr` or `sets`: those would send the key to players or the server list.
+   Use `set`, not `setr` or `sets`, so the key is never sent to players or the server list.
 
 3. Adjust `config.lua`:
 
@@ -128,30 +179,23 @@ It reads `./config.toml` (or the path in `APIBAN_CONFIG`) and creates the SQLite
    | --- | --- | --- |
    | `ServerName` | `'My FiveM Server'` | Shown on the ban card and ban screen |
    | `AppealUrl` | Discord invite | Appeal link; `nil` hides it |
-   | `KickDelay` | `10` | Seconds the ban screen is shown before the drop |
+   | `KickDelay` | `10` | Seconds the ban screen is shown before the player is dropped |
    | `AllowJoinWhenApiDown` | `true` | Let players join while the API is unreachable |
-   | `IgnoredIdentifiers` | `{ ip = true }` | Identifier types not stored in bans |
+   | `IgnoredIdentifiers` | `{ ip = true }` | Identifier types that are not stored in bans |
    | `UseHardwareTokens` | `true` | Also ban the player's hardware tokens |
 
-### 3. Dashboard (Next.js)
+## Creating an API key
 
-```bash
-cd web
-cp .env.example .env.local     # set APIBAN_API_URL
-npm ci
-npm run build
-npm start                      # http://localhost:3000
-```
+1. Sign in to the panel and open **Settings**.
+2. Give the key a name, for example `iPhone`, and click **Continue**.
+3. Run **`/auth`** on your Discord server. If you have the staff role, the bot replies with a **6-digit code** that only you can see. The code works for **60 seconds**, only once, and only for your account.
+4. Enter the code in the panel. Your **API key** appears once: copy it right away.
 
-Sign in with a **client** token (for example the `dashboard` key). You can see who is online, ban players, search and filter bans, and unban. Give each admin their own key so the ban list shows who did what.
-
-`APIBAN_API_URL` is only used by the Next.js server, the browser never talks to the API directly.
+Every key is signed with your Discord name, so bans show up as `ryz (iPhone)`. You can have up to 10 keys and revoke any of them in Settings. If you lose the staff role, the bot revokes all your keys within a minute.
 
 ## iPhone Shortcut
 
-Every iPhone gets its **own client key**. That key is the allow-list: a phone without a key cannot ban, and deleting its `[[keys]]` block locks it out.
-
-Create a new shortcut in the **Shortcuts** app called `Ban Player`:
+Create a shortcut called `Ban Player` in the **Shortcuts** app:
 
 1. **Ask for Input**: type *Number*, prompt `Player ID`
 2. **Ask for Input**: type *Text*, prompt `Reason`
@@ -160,16 +204,16 @@ Create a new shortcut in the **Shortcuts** app called `Ban Player`:
 5. **Get Contents of URL**
    - URL: `https://api.example.com/v1/bans`
    - Method: `POST`
-   - Headers: `Authorization` = `Bearer apiban_...` (your iPhone's token)
+   - Headers: `Authorization` = `Bearer apiban_...` (your key from the panel)
    - Request Body: `JSON`
      - `player` (Number) = *Provided Input* from step 1
      - `reason` (Text) = *Provided Input* from step 2
      - `duration` (Text) = *Chosen Item*
 6. **Get Dictionary Value**: `message` from *Contents of URL*
-7. **If** *Dictionary Value* **has any value**: **Show Notification** *Dictionary Value*
-   **Otherwise**: **Get Dictionary Value** `error` from *Contents of URL*, then **Show Alert** with it
+7. **If** *Dictionary Value* **has any value**: **Show Notification** *Dictionary Value*.
+   **Otherwise**: **Get Dictionary Value** `error` from *Contents of URL* and **Show Alert** with it.
 
-Now you can tap the shortcut, add it to your Home Screen, or say *"Hey Siri, Ban Player"*. On success you get a notification like `Banned Cheater (#12) for 1 week`.
+Run it from the Home Screen or say *"Hey Siri, Ban Player"*. On success you get a notification like `Banned Cheater (#12) for 1 week`.
 
 <details>
 <summary><b>Variant: pick the player from the online list</b></summary>
@@ -178,18 +222,17 @@ Replace step 1 with:
 
 1. **Get Contents of URL**: `GET https://api.example.com/v1/players` with the same `Authorization` header
 2. **Get Dictionary Value**: `players`
-3. **Repeat with Each** item in *Dictionary Value*:
-   **Text**: `[Repeat Item → id] · [Repeat Item → name]`
+3. **Repeat with Each** item in *Dictionary Value*: **Text** `[Repeat Item → id] · [Repeat Item → name]`
 4. **Choose from List**: *Repeat Results*
-5. **Split Text** *Chosen Item* by custom separator ` · `, then **Get Item from List**: *First Item*
+5. **Split Text** *Chosen Item* by ` · `, then **Get Item from List**: *First Item*
 
 Use that first item as `player` in the request body.
 
 </details>
 
-To unban from your phone, make a second shortcut with **Get Contents of URL** `https://api.example.com/v1/bans/<ban id>`, method `DELETE`, and the same header.
+To unban from your phone, make a second shortcut that sends `DELETE` to `https://api.example.com/v1/bans/<ban id>` with the same header.
 
-> Do not share a shortcut that contains a key. Anyone who has the file can ban with your key.
+> Never share a shortcut that contains your key. If a phone gets lost, revoke its key in Settings.
 
 ## In-game commands and export
 
@@ -208,25 +251,31 @@ exports.apiban:BanPlayer(source, 'Cheating detected', '30d', 'AntiCheat', functi
 end)
 ```
 
-`duration` is optional (`nil` = permanent), so is the callback.
+`duration` and the callback are optional; without a duration the ban is permanent.
 
 ## API reference
 
-All requests need `Authorization: Bearer <token>`. Bodies are JSON, errors look like `{"error": "..."}`.
+Every request needs `Authorization: Bearer <token>`. Bodies are JSON, and errors look like `{"error": "..."}`.
 
-| Method | Path | Key | Description |
+| Method | Path | Keys | Description |
 | --- | --- | --- | --- |
 | `GET` | `/health` | none | Liveness check |
 | `GET` | `/v1/me` | any | Name and role of the key |
-| `GET` | `/v1/players` | any | Online players from the last heartbeat |
-| `GET` | `/v1/bans` | any | List bans: `?status=all\|active\|expired\|revoked&q=&limit=&offset=` |
-| `POST` | `/v1/bans` | any | Create a ban |
-| `GET` | `/v1/bans/{id}` | any | One ban |
-| `DELETE` | `/v1/bans/{id}` | any | Unban (revoke) |
+| `GET` | `/v1/players` | user, panel, server | Online players from the last heartbeat |
+| `GET` | `/v1/bans` | user, panel, server | List bans: `?status=all\|active\|expired\|revoked&q=&limit=&offset=` |
+| `POST` | `/v1/bans` | user, panel, server | Create a ban |
+| `GET` | `/v1/bans/{id}` | user, panel, server | One ban |
+| `DELETE` | `/v1/bans/{id}` | user, panel, server | Unban |
 | `POST` | `/v1/server/heartbeat` | server | Report online players, get players to kick |
 | `POST` | `/v1/server/check` | server | Check identifiers while a player connects |
+| `POST` | `/v1/auth/codes` | bot | Issue a 6-digit code for a Discord user |
+| `POST` | `/v1/auth/redeem` | panel | Turn a code into an API key |
+| `GET` | `/v1/keys?discord_id=` | panel | A user's API keys |
+| `DELETE` | `/v1/keys/{id}?discord_id=` | panel | Revoke one of a user's keys |
+| `GET` | `/v1/keys/owners` | bot | Discord IDs that own active keys |
+| `DELETE` | `/v1/users/{discord_id}/keys` | bot | Revoke all keys of a user |
 
-**Create a ban**: send `player` (server id of an online player) or `identifiers` (for offline players).
+**Create a ban**: send `player` (server ID of an online player) or `identifiers` (for offline players).
 
 ```bash
 curl -X POST https://api.example.com/v1/bans \
@@ -241,11 +290,11 @@ curl -X POST https://api.example.com/v1/bans \
   "ban": {
     "id": 1,
     "player_name": "Cheater",
-    "identifiers": ["discord:42", "license:aaa111", "token:3:deadbeef"],
+    "identifiers": ["license:aaa111"],
     "reason": "Aimbot",
-    "banned_by": "ryz-iphone",
-    "created_at": 1795305381,
-    "expires_at": 1795910181,
+    "banned_by": "ryz (iPhone)",
+    "created_at": 1795306908,
+    "expires_at": 1795911708,
     "revoked_at": null,
     "revoked_by": null,
     "status": "active"
@@ -256,21 +305,22 @@ curl -X POST https://api.example.com/v1/bans \
 | Field | Required | Notes |
 | --- | --- | --- |
 | `reason` | yes | Up to 500 characters |
-| `player` | one of | Server id, number or numeric string |
+| `player` | one of | Server ID, as a number or numeric string |
 | `identifiers` | one of | e.g. `["license:abc", "discord:123"]` |
 | `name` | no | Player name when banning by identifiers |
-| `duration` | no | `30m`, `12h`, `7d`, `2w`, `1y`; empty or `perm` = permanent |
+| `duration` | no | `30m`, `12h`, `7d`, `2w`, `1y`; empty or `perm` means permanent |
 
-Timestamps are Unix seconds. `banned_by` is always the key's name, so a phone cannot pretend to be someone else.
+Timestamps are Unix seconds. `banned_by` comes from the key, so nobody can ban in someone else's name.
 
 ## Security
 
-- **Random keys, hashed at rest**: tokens are 256-bit random values. `config.toml` only stores their SHA-256 hash, so a leaked config does not leak working keys.
-- **Separate roles**: client keys (iPhones, dashboard) cannot call the server endpoints, so they cannot fake the player list. The server key is only stored in `server.cfg`.
-- **One key per device**: revoke a lost phone by removing its block from `config.toml` and restarting the API. Every ban and unban records the key that made it.
-- **HTTPS**: put the API behind a reverse proxy with TLS (see below). The API listens on `127.0.0.1` by default.
-- **Dashboard**: the key lives in an `httpOnly`, `SameSite=Strict` cookie (`Secure` in production) and never reaches browser JavaScript. Next.js server actions check the request origin, and the pages cannot be framed.
-- **Input validation**: identifiers, reasons, durations and names are validated and length-limited on the API. The ban screen renders text only, never HTML.
+- **Role-gated panel**: Discord OAuth plus a role check through the bot token at sign-in and again every minute while you use the panel. The session is an HMAC-signed `httpOnly` cookie.
+- **Codes bound to the account**: an `/auth` code only works for the Discord account that requested it, expires after 60 seconds, works once and is deleted after 5 wrong tries.
+- **Keys follow the role**: the bot checks all key owners every minute and revokes the keys of anyone who lost the role or left the server.
+- **Hashed at rest**: service tokens are stored as SHA-256 hashes in `config.toml`, user keys as SHA-256 hashes in the database. API keys are shown once and never again.
+- **Separate roles**: each key type can only call its own endpoints, so a user key cannot fake heartbeats or issue codes.
+- **HTTPS**: put the API and the panel behind a reverse proxy with TLS. The API listens on `127.0.0.1` by default.
+- **Validation**: identifiers, reasons, durations and names are checked and length-limited by the API. The ban screen renders text only, never HTML.
 
 ## Deployment
 
@@ -304,9 +354,9 @@ User=apiban
 WantedBy=multi-user.target
 ```
 
-Back up `apiban.db` to keep your bans. Run the dashboard the same way with `npm start` in `web/` (or any Node.js host) and set `APIBAN_API_URL`.
+Run the bot (`npm start` in `bot/`) and the panel (`npm start` in `web/`) the same way, or with pm2. Back up `apiban.db` to keep your bans and keys.
 
-**Development**: `cargo test` in `api/` runs the API tests, `npm run dev` in `web/` starts the dashboard with hot reload.
+**Development**: `cargo test` in `api/` runs the API tests, and `npm run dev` in `web/` starts the panel with hot reload.
 
 ## License
 

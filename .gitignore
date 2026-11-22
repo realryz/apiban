@@ -1,18 +1,15 @@
-# Rust
 api/target/
-
-# API runtime files (keys and bans stay on your server)
 api/config.toml
 *.db
 *.db-shm
 *.db-wal
-
-# Next.js
 web/node_modules/
 web/.next/
 web/next-env.d.ts
 web/*.tsbuildinfo
 web/.env*
 !web/.env.example
-
+bot/node_modules/
+bot/dist/
+bot/.env
 .DS_Store

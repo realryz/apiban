@@ -1,43 +1,29 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
-import { ApiError, SESSION_COOKIE, api, requireKey } from '@/lib/api';
+import { api } from '@/lib/api';
+import { requireUser } from '@/lib/auth';
 
 export type FormState = { error?: string; message?: string; at?: number };
+export type KeyState = { error?: string; token?: string; name?: string; at?: number };
 
-const SESSION_MAX_AGE = 60 * 60 * 24 * 7;
-
-export async function login(_: FormState, form: FormData): Promise<FormState> {
-  const key = String(form.get('key') ?? '').trim();
-  if (!key) return { error: 'Paste your API key.' };
-
-  try {
-    const me = await api.me(key);
-    if (me.role !== 'client') return { error: 'Server keys cannot sign in. Use a client key.' };
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 401) return { error: 'This API key is not valid.' };
-    return { error: (error as Error).message };
-  }
-
-  (await cookies()).set(SESSION_COOKIE, key, {
-    httpOnly: true,
-    sameSite: 'strict',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    maxAge: SESSION_MAX_AGE,
-  });
-  redirect('/');
+function describe(error: unknown) {
+  const text = (error as Error).message || 'Something went wrong.';
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-export async function logout() {
-  (await cookies()).delete(SESSION_COOKIE);
-  redirect('/login');
+async function run(path: string, action: () => Promise<{ message: string }>): Promise<FormState> {
+  try {
+    const { message } = await action();
+    revalidatePath(path);
+    return { message, at: Date.now() };
+  } catch (error) {
+    return { error: describe(error), at: Date.now() };
+  }
 }
 
 export async function createBan(_: FormState, form: FormData): Promise<FormState> {
-  const key = await requireKey();
+  const user = await requireUser();
   const field = (name: string) => String(form.get(name) ?? '').trim();
 
   const duration = field('duration') === 'custom' ? field('custom_duration') : field('duration');
@@ -48,29 +34,35 @@ export async function createBan(_: FormState, form: FormData): Promise<FormState
     body.name = field('name');
   } else {
     const player = field('player');
-    if (!/^\d+$/.test(player)) return { error: 'Pick an online player.' };
+    if (!/^\d+$/.test(player)) return { error: 'Pick an online player.', at: Date.now() };
     body.player = Number(player);
   }
 
-  return mutate(() => api.createBan(key, body));
+  return run('/', () => api.createBan(user.username, body));
 }
 
 export async function revokeBan(id: number): Promise<FormState> {
-  const key = await requireKey();
-  return mutate(() => api.revokeBan(key, id));
+  const user = await requireUser();
+  return run('/', () => api.revokeBan(user.username, id));
 }
 
-async function mutate(run: () => Promise<{ message: string }>): Promise<FormState> {
-  let expired = false;
+export async function redeemKey(_: KeyState, form: FormData): Promise<KeyState> {
+  const user = await requireUser();
+  const name = String(form.get('name') ?? '').trim();
+  const code = String(form.get('code') ?? '').replace(/\s/g, '');
+  if (!name) return { error: 'Give the key a name.', at: Date.now() };
+  if (!/^\d{6}$/.test(code)) return { error: 'Enter the 6-digit code from Discord.', at: Date.now() };
+
   try {
-    const { message } = await run();
-    revalidatePath('/');
-    return { message, at: Date.now() };
+    const { token, key } = await api.redeem(user.id, code, name);
+    revalidatePath('/settings');
+    return { token, name: key.name, at: Date.now() };
   } catch (error) {
-    if (error instanceof ApiError && error.status === 401) expired = true;
-    else return { error: (error as Error).message, at: Date.now() };
+    return { error: describe(error), at: Date.now() };
   }
-  // redirect() throws, so it must run outside the try block.
-  if (expired) redirect('/login?expired=1');
-  return {};
+}
+
+export async function revokeKey(id: number): Promise<FormState> {
+  const user = await requireUser();
+  return run('/settings', () => api.revokeKey(user.id, id));
 }

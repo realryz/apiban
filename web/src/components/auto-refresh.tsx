@@ -3,7 +3,6 @@
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
-/** Re-fetches the server data so online players and new bans show up without reloading. */
 export function AutoRefresh({ seconds }: { seconds: number }) {
   const router = useRouter();
   useEffect(() => {

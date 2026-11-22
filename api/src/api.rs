@@ -4,7 +4,7 @@ use axum::{
     Json, Router,
     extract::{FromRequest, Path, Query, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use serde::{
     Deserialize, Deserializer, Serialize,
@@ -14,19 +14,21 @@ use serde_json::{Value, json};
 
 use crate::{
     AppState,
-    auth::Principal,
+    auth::{Principal, generate_token, hash_token},
     config::Role,
     db::{BanStatus, NewBan},
     duration,
     error::ApiError,
 };
 
-/// The FiveM resource sends a heartbeat every 3 seconds; after this long without one
-/// the server counts as offline.
 const ONLINE_WINDOW_SECS: i64 = 15;
+const AUTH_CODE_TTL_SECS: i64 = 60;
 const MAX_PLAYERS: usize = 2048;
 const MAX_IDENTIFIERS: usize = 64;
 const MAX_REASON: usize = 500;
+const MAX_KEY_NAME: usize = 32;
+const MAX_KEYS_PER_USER: usize = 10;
+const BAN_ROLES: &[Role] = &[Role::Server, Role::Panel, Role::User];
 
 pub fn router(app: AppState) -> Router {
     Router::new()
@@ -37,15 +39,19 @@ pub fn router(app: AppState) -> Router {
         .route("/v1/players", get(players))
         .route("/v1/bans", get(list_bans).post(create_ban))
         .route("/v1/bans/{id}", get(get_ban).delete(revoke_ban))
+        .route("/v1/auth/codes", post(create_auth_code))
+        .route("/v1/auth/redeem", post(redeem_auth_code))
+        .route("/v1/keys", get(list_keys))
+        .route("/v1/keys/owners", get(key_owners))
+        .route("/v1/keys/{id}", delete(revoke_key))
+        .route("/v1/users/{discord_id}/keys", delete(revoke_user_keys))
         .with_state(app)
 }
 
-/// `Json` that reports bad bodies as `{"error": ...}` like every other error.
 #[derive(FromRequest)]
 #[from_request(via(Json), rejection(ApiError))]
 struct ApiJson<T>(T);
 
-/// What the FiveM server reported in its last heartbeat.
 #[derive(Default)]
 pub struct Live {
     last_heartbeat: Option<i64>,
@@ -81,14 +87,12 @@ struct HeartbeatRequest {
     players: Vec<OnlinePlayer>,
 }
 
-/// Called by the FiveM resource: stores who is online and answers with the
-/// players that have an active ban and must be kicked.
 async fn heartbeat(
     State(app): State<AppState>,
     principal: Principal,
     ApiJson(body): ApiJson<HeartbeatRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    principal.require(Role::Server)?;
+    principal.require(&[Role::Server])?;
     if body.players.len() > MAX_PLAYERS {
         return Err(ApiError::BadRequest("too many players".into()));
     }
@@ -123,22 +127,22 @@ struct CheckRequest {
     identifiers: Vec<String>,
 }
 
-/// Called by the FiveM resource while a player connects.
 async fn check(
     State(app): State<AppState>,
     principal: Principal,
     ApiJson(body): ApiJson<CheckRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    principal.require(Role::Server)?;
+    principal.require(&[Role::Server])?;
     let ban = app.db().find_active_ban(&clean_identifiers(&body.identifiers), now())?;
     Ok(Json(json!({ "banned": ban.is_some(), "ban": ban })))
 }
 
-async fn players(State(app): State<AppState>, _: Principal) -> Json<Value> {
+async fn players(State(app): State<AppState>, principal: Principal) -> Result<Json<Value>, ApiError> {
+    principal.require(BAN_ROLES)?;
     let live = app.live();
     let online = live.online(now());
     let players: &[OnlinePlayer] = if online { &live.players } else { &[] };
-    Json(json!({ "online": online, "last_heartbeat": live.last_heartbeat, "players": players }))
+    Ok(Json(json!({ "online": online, "last_heartbeat": live.last_heartbeat, "players": players })))
 }
 
 #[derive(Deserialize)]
@@ -151,9 +155,10 @@ struct ListQuery {
 
 async fn list_bans(
     State(app): State<AppState>,
-    _: Principal,
+    principal: Principal,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Value>, ApiError> {
+    principal.require(BAN_ROLES)?;
     let status = match query.status.as_deref().map(str::trim).unwrap_or("") {
         "" | "all" => None,
         value => Some(BanStatus::parse(value).ok_or_else(|| {
@@ -168,25 +173,23 @@ async fn list_bans(
 
 async fn get_ban(
     State(app): State<AppState>,
-    _: Principal,
+    principal: Principal,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
-    let ban = app.db().get_ban(id, now())?.ok_or_else(|| not_found(id))?;
+    principal.require(BAN_ROLES)?;
+    let ban = app.db().get_ban(id, now())?.ok_or_else(|| ban_not_found(id))?;
     Ok(Json(json!(ban)))
 }
 
 #[derive(Deserialize)]
 struct CreateBanRequest {
-    /// Server id of an online player, e.g. `12`.
     #[serde(default, deserialize_with = "player_id")]
     player: Option<u32>,
-    /// Identifiers to ban, e.g. `license:abc...` (for offline players).
     #[serde(default, deserialize_with = "lenient_vec")]
     identifiers: Vec<String>,
     name: Option<String>,
     #[serde(default)]
     reason: String,
-    /// `30m`, `12h`, `7d`, `2w`, `1y`; empty or `perm` for a permanent ban.
     duration: Option<String>,
 }
 
@@ -195,6 +198,7 @@ async fn create_ban(
     principal: Principal,
     ApiJson(request): ApiJson<CreateBanRequest>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
+    principal.require(BAN_ROLES)?;
     let reason = clean_text(&request.reason, MAX_REASON + 1);
     if reason.is_empty() {
         return Err(ApiError::BadRequest("`reason` is required".into()));
@@ -254,7 +258,7 @@ async fn create_ban(
         Some(seconds) => format!("Banned {} (#{}) for {}", ban.player_name, ban.id, duration::humanize(seconds)),
         None => format!("Banned {} (#{}) permanently", ban.player_name, ban.id),
     };
-    tracing::info!(by = %principal.actor, key = %principal.name, reason = %ban.reason, "{message}");
+    tracing::info!(by = %principal.actor, reason = %ban.reason, "{message}");
     Ok((StatusCode::CREATED, Json(json!({ "message": message, "ban": ban }))))
 }
 
@@ -263,36 +267,165 @@ async fn revoke_ban(
     principal: Principal,
     Path(id): Path<i64>,
 ) -> Result<Json<Value>, ApiError> {
+    principal.require(BAN_ROLES)?;
     let now = now();
     let ban = {
         let db = app.db();
-        let ban = db.get_ban(id, now)?.ok_or_else(|| not_found(id))?;
+        let ban = db.get_ban(id, now)?.ok_or_else(|| ban_not_found(id))?;
         if ban.status == BanStatus::Revoked {
             return Err(ApiError::Conflict(format!("ban #{id} is already revoked")));
         }
-        db.revoke_ban(id, &principal.actor, now)?.ok_or_else(|| not_found(id))?
+        db.revoke_ban(id, &principal.actor, now)?.ok_or_else(|| ban_not_found(id))?
     };
 
     let message = format!("Unbanned {} (#{})", ban.player_name, ban.id);
-    tracing::info!(by = %principal.actor, key = %principal.name, "{message}");
+    tracing::info!(by = %principal.actor, "{message}");
     Ok(Json(json!({ "message": message, "ban": ban })))
 }
 
-fn not_found(id: i64) -> ApiError {
+#[derive(Deserialize)]
+struct AuthCodeRequest {
+    #[serde(default)]
+    discord_id: String,
+    #[serde(default)]
+    discord_name: String,
+}
+
+async fn create_auth_code(
+    State(app): State<AppState>,
+    principal: Principal,
+    ApiJson(request): ApiJson<AuthCodeRequest>,
+) -> Result<Json<Value>, ApiError> {
+    principal.require(&[Role::Bot])?;
+    let discord_id = discord_id(&request.discord_id)?;
+    let discord_name =
+        Some(clean_text(&request.discord_name, 64)).filter(|n| !n.is_empty()).unwrap_or_else(|| discord_id.clone());
+
+    let code = format!("{:06}", rand::random_range(0..1_000_000u32));
+    let now = now();
+    let expires_at = now + AUTH_CODE_TTL_SECS;
+    app.db().save_auth_code(&discord_id, &discord_name, &code, expires_at, now)?;
+    tracing::info!("issued an auth code to {discord_name}");
+    Ok(Json(json!({ "code": code, "expires_at": expires_at })))
+}
+
+#[derive(Deserialize)]
+struct RedeemRequest {
+    #[serde(default)]
+    discord_id: String,
+    #[serde(default)]
+    code: String,
+    #[serde(default)]
+    name: String,
+}
+
+async fn redeem_auth_code(
+    State(app): State<AppState>,
+    principal: Principal,
+    ApiJson(request): ApiJson<RedeemRequest>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    principal.require(&[Role::Panel])?;
+    let discord_id = discord_id(&request.discord_id)?;
+    let code = request.code.trim();
+    if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(ApiError::BadRequest("the code has exactly 6 digits".into()));
+    }
+    let name = clean_text(&request.name, MAX_KEY_NAME);
+    if name.is_empty() {
+        return Err(ApiError::BadRequest("give the key a name".into()));
+    }
+
+    let now = now();
+    let token = generate_token();
+    let key = {
+        let db = app.db();
+        if db.user_keys(&discord_id)?.len() >= MAX_KEYS_PER_USER {
+            return Err(ApiError::Conflict(format!(
+                "you already have {MAX_KEYS_PER_USER} API keys, revoke one first"
+            )));
+        }
+        let discord_name = db.redeem_auth_code(&discord_id, code, now)?.ok_or_else(|| {
+            ApiError::BadRequest("wrong or expired code, run /auth in Discord again".into())
+        })?;
+        db.insert_user_key(&name, &discord_id, &discord_name, &hash_token(&token), now)?
+    };
+
+    tracing::info!("{} created the api key \"{}\"", key.discord_name, key.name);
+    Ok((StatusCode::CREATED, Json(json!({ "token": token, "key": key }))))
+}
+
+#[derive(Deserialize)]
+struct OwnerQuery {
+    #[serde(default)]
+    discord_id: String,
+}
+
+async fn list_keys(
+    State(app): State<AppState>,
+    principal: Principal,
+    Query(query): Query<OwnerQuery>,
+) -> Result<Json<Value>, ApiError> {
+    principal.require(&[Role::Panel])?;
+    let keys = app.db().user_keys(&discord_id(&query.discord_id)?)?;
+    Ok(Json(json!({ "keys": keys })))
+}
+
+async fn revoke_key(
+    State(app): State<AppState>,
+    principal: Principal,
+    Path(id): Path<i64>,
+    Query(query): Query<OwnerQuery>,
+) -> Result<Json<Value>, ApiError> {
+    principal.require(&[Role::Panel])?;
+    let owner = discord_id(&query.discord_id)?;
+    if !app.db().revoke_user_key(id, &owner, now())? {
+        return Err(ApiError::NotFound("api key not found".into()));
+    }
+    tracing::info!("discord user {owner} revoked api key #{id}");
+    Ok(Json(json!({ "message": "API key revoked" })))
+}
+
+async fn key_owners(State(app): State<AppState>, principal: Principal) -> Result<Json<Value>, ApiError> {
+    principal.require(&[Role::Bot])?;
+    Ok(Json(json!({ "discord_ids": app.db().key_owners()? })))
+}
+
+async fn revoke_user_keys(
+    State(app): State<AppState>,
+    principal: Principal,
+    Path(raw): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    principal.require(&[Role::Bot])?;
+    let owner = discord_id(&raw)?;
+    let revoked = app.db().revoke_user(&owner, now())?;
+    if revoked > 0 {
+        tracing::info!("revoked {revoked} api key(s) of discord user {owner}");
+    }
+    Ok(Json(json!({ "revoked": revoked })))
+}
+
+fn ban_not_found(id: i64) -> ApiError {
     ApiError::NotFound(format!("ban #{id} not found"))
 }
 
-fn now() -> i64 {
+pub fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-/// Trims, drops control characters and cuts the text to `max` characters.
 pub fn clean_text(text: &str, max: usize) -> String {
     let cleaned: String = text.trim().chars().filter(|c| !c.is_control()).take(max).collect();
     cleaned.trim().to_string()
 }
 
-/// FiveM identifiers look like `license:abc123`, `discord:123` or `token:3:abc`.
+fn discord_id(raw: &str) -> Result<String, ApiError> {
+    let id = raw.trim();
+    if (5..=25).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_digit()) {
+        Ok(id.to_string())
+    } else {
+        Err(ApiError::BadRequest("`discord_id` must be a Discord user id".into()))
+    }
+}
+
 fn normalize_identifier(raw: &str) -> Option<String> {
     let identifier = raw.trim();
     let (kind, value) = identifier.split_once(':')?;
@@ -303,13 +436,10 @@ fn normalize_identifier(raw: &str) -> Option<String> {
     valid.then(|| identifier.to_string())
 }
 
-/// For data sent by the FiveM server: keep the valid identifiers, skip the rest.
 fn clean_identifiers(raw: &[String]) -> Vec<String> {
     raw.iter().filter_map(|i| normalize_identifier(i)).take(MAX_IDENTIFIERS).collect()
 }
 
-/// Accepts a JSON array, `null` or `{}` (FiveM's Lua JSON encoder may turn an empty
-/// table into an object).
 fn lenient_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
@@ -322,7 +452,6 @@ where
     }
 }
 
-/// Accepts `12`, `12.0` or `"12"`: iOS Shortcuts sends numbers either way.
 fn player_id<'de, D>(deserializer: D) -> Result<Option<u32>, D::Error>
 where
     D: Deserializer<'de>,

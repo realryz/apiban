@@ -16,7 +16,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{
     api::Live,
-    config::{ApiKey, Config, Role},
+    config::{Config, Role, ServiceKey},
     db::Db,
 };
 
@@ -25,13 +25,11 @@ apiban-api - HTTP API for the apiban FiveM ban system
 
 USAGE:
     apiban-api [serve]                 start the API (reads $APIBAN_CONFIG, default ./config.toml)
-    apiban-api keygen <name> [role]    create a new API key; role is `client` (default) or `server`
+    apiban-api keygen <name> <role>    create a service key; role is `server`, `bot` or `panel`
 ";
 
-/// Shared state for every request.
 pub struct App {
-    /// API keys indexed by the SHA-256 hash of their token.
-    keys: HashMap<String, ApiKey>,
+    keys: HashMap<String, ServiceKey>,
     db: Mutex<Db>,
     live: RwLock<Live>,
 }
@@ -84,8 +82,13 @@ async fn serve() -> Result<(), String> {
     let db = Db::open(&config.database)
         .map_err(|e| format!("cannot open database {}: {e}", config.database.display()))?;
 
-    let servers = config.keys.iter().filter(|k| k.role == Role::Server).count();
-    let clients = config.keys.len() - servers;
+    let count = |role: Role| config.keys.iter().filter(|k| k.role == role).count();
+    let summary = format!(
+        "{} server, {} bot, {} panel key(s)",
+        count(Role::Server),
+        count(Role::Bot),
+        count(Role::Panel)
+    );
     let app = Arc::new(App {
         keys: config.keys.into_iter().map(|key| (key.sha256.clone(), key)).collect(),
         db: Mutex::new(db),
@@ -95,10 +98,7 @@ async fn serve() -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind(&config.bind)
         .await
         .map_err(|e| format!("cannot listen on {}: {e}", config.bind))?;
-    tracing::info!(
-        "apiban api listening on {} ({servers} server key(s), {clients} client key(s))",
-        config.bind
-    );
+    tracing::info!("apiban api listening on {} ({summary})", config.bind);
 
     axum::serve(listener, api::router(app))
         .with_graceful_shutdown(async {
@@ -109,17 +109,17 @@ async fn serve() -> Result<(), String> {
 }
 
 fn keygen(args: &[String]) -> Result<(), String> {
-    let usage = "usage: apiban-api keygen <name> [client|server]";
+    let usage = "usage: apiban-api keygen <name> <server|bot|panel>";
     let name = args.first().map(|n| n.trim()).filter(|n| !n.is_empty()).ok_or(usage)?;
-    let role = match args.get(1).map(String::as_str).unwrap_or("client") {
-        "client" => "client",
-        "server" => "server",
-        other => return Err(format!("unknown role `{other}`\n{usage}")),
+    let role = match args.get(1).map(String::as_str) {
+        Some(role @ ("server" | "bot" | "panel")) => role,
+        Some(other) => return Err(format!("unknown role `{other}`\n{usage}")),
+        None => return Err(usage.into()),
     };
 
     let token = auth::generate_token();
     println!("New {role} key for \"{name}\".\n");
-    println!("Token (shown only once, give it to the device or server):\n\n    {token}\n");
+    println!("Token (shown only once):\n\n    {token}\n");
     println!("Add this to config.toml and restart the API:\n");
     println!("[[keys]]");
     println!("name = {name:?}");

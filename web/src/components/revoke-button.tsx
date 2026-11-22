@@ -1,22 +1,29 @@
 'use client';
 
 import { useTransition } from 'react';
-import { revokeBan } from '@/app/actions';
+import { type FormState, revokeBan, revokeKey } from '@/app/actions';
 
-export function RevokeButton({ id, name }: { id: number; name: string }) {
+type Props = {
+  kind: 'ban' | 'key';
+  id: number;
+  name: string;
+};
+
+export function RevokeButton({ kind, id, name }: Props) {
   const [pending, startTransition] = useTransition();
 
   function revoke() {
-    if (!confirm(`Unban ${name} (#${id})?`)) return;
+    const question = kind === 'ban' ? `Unban ${name} (#${id})?` : `Revoke the API key "${name}"? It stops working right away.`;
+    if (!confirm(question)) return;
     startTransition(async () => {
-      const result = await revokeBan(id);
+      const result: FormState = kind === 'ban' ? await revokeBan(id) : await revokeKey(id);
       if (result.error) alert(result.error);
     });
   }
 
   return (
-    <button type="button" onClick={revoke} disabled={pending} className="btn btn-outline px-2.5 py-1 text-xs">
-      {pending ? 'Unbanning…' : 'Unban'}
+    <button type="button" onClick={revoke} disabled={pending} className="btn btn-sm">
+      {pending ? 'Working…' : kind === 'ban' ? 'Unban' : 'Revoke'}
     </button>
   );
 }

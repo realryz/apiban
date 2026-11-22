@@ -1,7 +1,5 @@
 local banned = false
 
--- Sent by the server right before the player is dropped. Display only:
--- the server drops the player whether or not this screen is shown.
 RegisterNetEvent('apiban:banned', function(ban, seconds)
     if banned then return end
     banned = true

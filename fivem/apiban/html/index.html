@@ -3,6 +3,9 @@
 <head>
     <meta charset="utf-8">
     <title>apiban</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Fraunces:ital,wght@0,420;1,380&family=IBM+Plex+Mono:wght@400;500&display=swap">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -10,27 +13,19 @@
         <div class="backdrop"></div>
 
         <section class="panel" role="alertdialog" aria-labelledby="title" aria-describedby="reason">
-            <header class="head">
-                <div class="badge" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-                        <circle cx="12" cy="12" r="9"/>
-                        <path d="M5.6 5.6l12.8 12.8"/>
-                    </svg>
-                </div>
-                <p class="eyebrow" id="server"></p>
-                <h1 id="title">You have been banned</h1>
-            </header>
+            <p class="eyebrow"><span class="dot"></span><span id="server"></span></p>
+            <h1 id="title" class="display">You are <em>banned</em></h1>
 
-            <div class="reason">
+            <div class="callout">
                 <span class="label">Reason</span>
                 <p id="reason"></p>
             </div>
 
-            <dl class="facts">
-                <div><dt>Ban ID</dt><dd id="ban-id" class="mono"></dd></div>
-                <div><dt>Banned by</dt><dd id="banned-by"></dd></div>
-                <div><dt>Duration</dt><dd id="duration"></dd></div>
-                <div><dt>Expires</dt><dd id="expires"></dd></div>
+            <dl class="cells">
+                <div class="cell"><dt>Ban ID</dt><dd id="ban-id" class="mono"></dd></div>
+                <div class="cell"><dt>Banned by</dt><dd id="banned-by"></dd></div>
+                <div class="cell"><dt>Duration</dt><dd id="duration"></dd></div>
+                <div class="cell"><dt>Expires</dt><dd id="expires"></dd></div>
             </dl>
 
             <p class="appeal" id="appeal" hidden></p>

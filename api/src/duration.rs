@@ -5,8 +5,6 @@ const WEEK: i64 = 7 * DAY;
 const YEAR: i64 = 365 * DAY;
 const MAX: i64 = 100 * YEAR;
 
-/// Parses a ban length such as `30m`, `12h`, `7d`, `2w`, `1y` or `7 days`.
-/// Empty input and `perm` / `permanent` mean a permanent ban (`None`).
 pub fn parse(input: Option<&str>) -> Result<Option<i64>, String> {
     let raw = input.unwrap_or("").trim().to_ascii_lowercase();
     if matches!(raw.as_str(), "" | "perm" | "permanent" | "forever" | "never") {
@@ -35,7 +33,6 @@ pub fn parse(input: Option<&str>) -> Result<Option<i64>, String> {
         .ok_or_else(|| "duration is too long, use perm for a permanent ban".into())
 }
 
-/// Formats a length in seconds with the largest unit that divides it exactly.
 pub fn humanize(seconds: i64) -> String {
     let units = [(YEAR, "year"), (WEEK, "week"), (DAY, "day"), (HOUR, "hour"), (MINUTE, "minute")];
     let (size, name) = units

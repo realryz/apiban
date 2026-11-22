@@ -6,7 +6,6 @@ use axum::{
 };
 use serde_json::json;
 
-/// Every error leaves the API as `{"error": "..."}` with a matching status code.
 #[derive(Debug)]
 pub enum ApiError {
     BadRequest(String),

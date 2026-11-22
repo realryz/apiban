@@ -8,7 +8,6 @@ const UNITS = [
     [60, 'minute'],
 ];
 
-// Largest unit that divides the length exactly, e.g. 604800 -> "1 week".
 function humanize(seconds) {
     const [size, name] = UNITS.find(([size]) => seconds >= size && seconds % size === 0) ?? [1, 'second'];
     const count = Math.round(seconds / size);

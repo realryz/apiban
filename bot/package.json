@@ -1,0 +1,22 @@
+{
+  "name": "apiban-bot",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "dev": "tsc && node --env-file-if-exists=.env dist/index.js"
+  },
+  "dependencies": {
+    "discord.js": "14.28.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "5.9.3"
+  }
+}

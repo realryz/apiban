@@ -6,10 +6,6 @@ if API_KEY == '' then
     print('^1[apiban] apiban_key is not set. Add  set apiban_key "apiban_..."  to server.cfg.^0')
 end
 
----------------------------------------------------------------------------
--- API
----------------------------------------------------------------------------
-
 local function request(method, path, body, cb, actor)
     local headers = {
         ['Content-Type'] = 'application/json',
@@ -32,10 +28,6 @@ local function apiError(status, data)
     if status == 0 then return 'API unreachable' end
     return ('HTTP %d'):format(status)
 end
-
----------------------------------------------------------------------------
--- Helpers
----------------------------------------------------------------------------
 
 local function collectIdentifiers(src)
     local list = {}
@@ -77,7 +69,6 @@ local function expiryText(ban)
     return ('%s (in %s)'):format(formatDate(ban.expires_at), formatRemaining(ban.expires_at - os.time()))
 end
 
--- Plain-text message shown by FiveM when the player is dropped.
 local function kickMessage(ban)
     local lines = {
         ('You are banned from %s.'):format(Config.ServerName),
@@ -89,7 +80,6 @@ local function kickMessage(ban)
     return table.concat(lines, '\n')
 end
 
--- Adaptive card shown in the connecting screen when a banned player tries to join.
 local function banCard(ban)
     local actions = {}
     if Config.AppealUrl then
@@ -136,13 +126,8 @@ local function banCard(ban)
     })
 end
 
----------------------------------------------------------------------------
--- Enforcing bans
----------------------------------------------------------------------------
-
 local kicking = {}
 
--- Shows the ban screen to an online player, then drops them.
 local function enforce(src, ban)
     src = tonumber(src)
     if not src or kicking[src] or not GetPlayerName(src) then return end
@@ -196,10 +181,6 @@ AddEventHandler('playerConnecting', function(_, _, deferrals)
     end)
 end)
 
----------------------------------------------------------------------------
--- Heartbeat: report online players, kick the ones banned from outside
----------------------------------------------------------------------------
-
 local apiDown = false
 
 local function heartbeat()
@@ -237,12 +218,6 @@ CreateThread(function()
     end
 end)
 
----------------------------------------------------------------------------
--- In-game commands and export
----------------------------------------------------------------------------
-
--- exports.apiban:BanPlayer(serverId, reason, duration, bannedBy, cb)
--- duration: '30m', '12h', '7d', '2w', '1y' or nil/'perm'. cb(ok, message, ban) is optional.
 local function banPlayer(target, reason, duration, actor, cb)
     cb = cb or function() end
     target = tonumber(target)

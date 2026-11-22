@@ -1,11 +1,5 @@
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
-import type { BanList, BanResult, Me, Players } from './types';
-
-// Server-only: the API key lives in an httpOnly cookie and never reaches browser JavaScript.
-
-export const SESSION_COOKIE = 'apiban_session';
-const API_URL = (process.env.APIBAN_API_URL ?? 'http://127.0.0.1:8080').replace(/\/+$/, '');
+import { env } from './env';
+import type { BanList, BanResult, Players, UserKey } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -16,39 +10,41 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(key: string, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+async function request<T>(path: string, init: { method?: string; body?: unknown; actor?: string } = {}): Promise<T> {
+  const url = `${env('APIBAN_API_URL')}${path}`;
   let response: Response;
   try {
-    response = await fetch(`${API_URL}${path}`, {
+    response = await fetch(url, {
       method: init.method ?? 'GET',
       headers: {
-        Authorization: `Bearer ${key}`,
+        Authorization: `Bearer ${env('APIBAN_PANEL_KEY')}`,
+        ...(init.actor && { 'X-Apiban-Actor': init.actor }),
         ...(init.body !== undefined && { 'Content-Type': 'application/json' }),
       },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
       cache: 'no-store',
     });
   } catch {
-    throw new ApiError(0, `Cannot reach the apiban API at ${API_URL}.`);
+    throw new ApiError(0, `Cannot reach the apiban API at ${env('APIBAN_API_URL')}.`);
   }
   const data = await response.json().catch(() => null);
+  if (response.status === 401) throw new ApiError(401, 'The API rejected APIBAN_PANEL_KEY. Check web/.env.');
   if (!response.ok) throw new ApiError(response.status, data?.error ?? `The API answered with HTTP ${response.status}.`);
   return data as T;
 }
 
 export const api = {
-  me: (key: string) => request<Me>(key, '/v1/me'),
-  players: (key: string) => request<Players>(key, '/v1/players'),
-  bans: (key: string, query: Record<string, string>) =>
-    request<BanList>(key, `/v1/bans?${new URLSearchParams(query)}`),
-  createBan: (key: string, body: Record<string, unknown>) =>
-    request<BanResult>(key, '/v1/bans', { method: 'POST', body }),
-  revokeBan: (key: string, id: number) => request<BanResult>(key, `/v1/bans/${id}`, { method: 'DELETE' }),
+  players: () => request<Players>('/v1/players'),
+  bans: (query: Record<string, string>) => request<BanList>(`/v1/bans?${new URLSearchParams(query)}`),
+  createBan: (actor: string, body: Record<string, unknown>) =>
+    request<BanResult>('/v1/bans', { method: 'POST', body, actor }),
+  revokeBan: (actor: string, id: number) => request<BanResult>(`/v1/bans/${id}`, { method: 'DELETE', actor }),
+  keys: (discordId: string) => request<{ keys: UserKey[] }>(`/v1/keys?discord_id=${discordId}`),
+  redeem: (discordId: string, code: string, name: string) =>
+    request<{ token: string; key: UserKey }>('/v1/auth/redeem', {
+      method: 'POST',
+      body: { discord_id: discordId, code, name },
+    }),
+  revokeKey: (discordId: string, id: number) =>
+    request<{ message: string }>(`/v1/keys/${id}?discord_id=${discordId}`, { method: 'DELETE' }),
 };
-
-/** The signed-in API key, or a redirect to the login page. */
-export async function requireKey(): Promise<string> {
-  const key = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!key) redirect('/login');
-  return key;
-}

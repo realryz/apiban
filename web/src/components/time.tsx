@@ -22,7 +22,6 @@ function relative(timestamp: number) {
   }
 }
 
-/** Unix timestamp shown in the viewer's time zone (rendered after mount to avoid hydration mismatches). */
 export function Time({ ts }: { ts: number }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
