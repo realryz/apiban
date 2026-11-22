@@ -9,32 +9,67 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <main id="screen" class="screen" hidden>
-        <div class="backdrop"></div>
+    <main id="screen" class="screen" hidden role="alertdialog" aria-labelledby="title" aria-describedby="reason">
+        <header class="site-header">
+            <div class="shell">
+                <span class="logo"><span class="logo-mark" aria-hidden="true">✹</span>apiban</span>
+                <span class="header-meta">
+                    <span id="server"></span>
+                    <span class="tag mono" id="header-id"></span>
+                </span>
+            </div>
+        </header>
 
-        <section class="panel" role="alertdialog" aria-labelledby="title" aria-describedby="reason">
-            <p class="eyebrow"><span class="dot"></span><span id="server"></span></p>
-            <h1 id="title" class="display">You are <em>banned</em></h1>
+        <section class="shell page">
+            <p class="eyebrow rise"><span class="live-dot"></span>Access denied</p>
+            <h1 id="title" class="display page-title rise">You are <em>banned</em></h1>
+            <p class="lead page-lead rise" id="lead"></p>
 
-            <div class="callout">
-                <span class="label">Reason</span>
-                <p id="reason"></p>
+            <div class="cells rise">
+                <div class="cell">
+                    <span class="eyebrow">Ban ID</span>
+                    <span class="stat-value"><em id="ban-id"></em></span>
+                    <span class="cell-text">Mention it when you appeal</span>
+                </div>
+                <div class="cell">
+                    <span class="eyebrow">Duration</span>
+                    <span class="stat-value" id="duration"></span>
+                    <span class="cell-text" id="banned-on"></span>
+                </div>
+                <div class="cell">
+                    <span class="eyebrow">Expires</span>
+                    <span class="stat-value" id="expires"></span>
+                    <span class="cell-text" id="expires-at"></span>
+                </div>
             </div>
 
-            <dl class="cells">
-                <div class="cell"><dt>Ban ID</dt><dd id="ban-id" class="mono"></dd></div>
-                <div class="cell"><dt>Banned by</dt><dd id="banned-by"></dd></div>
-                <div class="cell"><dt>Duration</dt><dd id="duration"></dd></div>
-                <div class="cell"><dt>Expires</dt><dd id="expires"></dd></div>
-            </dl>
+            <div class="page-section rise">
+                <p class="eyebrow">Reason</p>
+                <div class="callout"><p class="prose" id="reason"></p></div>
+            </div>
 
-            <p class="appeal" id="appeal" hidden></p>
-
-            <footer class="foot">
-                <div class="progress"><div class="bar" id="bar"></div></div>
-                <p class="countdown">Disconnecting in <strong id="seconds"></strong>s</p>
-            </footer>
+            <div class="page-section rise" id="appeal-section" hidden>
+                <p class="eyebrow">Appeal</p>
+                <div class="stack">
+                    <div class="list-row">
+                        <span class="list-index mono">01</span>
+                        <div class="list-main">
+                            <strong id="appeal"></strong>
+                            <span>Think this is a mistake? Open a ticket there and include your ban ID.</span>
+                        </div>
+                        <span class="tag mono" id="appeal-id"></span>
+                    </div>
+                </div>
+            </div>
         </section>
+
+        <footer class="site-footer">
+            <div class="progress"><div class="bar" id="bar"></div></div>
+            <div class="shell">
+                <span><span class="brand-mark" aria-hidden="true">✹</span> · Protected by <b>apiban</b></span>
+                <span>Disconnecting in <b id="seconds"></b>s</span>
+            </div>
+        </footer>
     </main>
 
     <script src="script.js"></script>

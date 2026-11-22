@@ -9,13 +9,19 @@ Rust API · Lua resource · Next.js panel · Discord bot (TypeScript) · iOS Sho
 </div>
 
 <p align="center">
-  <img src="docs/dashboard.jpg" alt="apiban panel with online players and bans" width="49%">
-  <img src="docs/ban-screen.jpg" alt="In-game ban screen" width="49%">
+  <img src="docs/ban-screen.png" alt="In-game ban screen in the apiban design" width="100%">
 </p>
 <p align="center">
-  <img src="docs/login.jpg" alt="Sign in with Discord" width="49%">
-  <img src="docs/settings.jpg" alt="Creating an API key with a Discord code" width="49%">
+  <img src="docs/login.png" alt="Sign in with Discord" width="32.6%">
+  <img src="docs/settings.png" alt="Creating an API key with a 6-digit Discord code" width="32.6%">
+  <img src="docs/ban-dialog.png" alt="Banning an online player from the panel" width="32.6%">
 </p>
+
+<details>
+<summary><b>Full dashboard</b></summary>
+<br>
+<img src="docs/dashboard.png" alt="apiban dashboard with online players and bans" width="100%">
+</details>
 
 ---
 
